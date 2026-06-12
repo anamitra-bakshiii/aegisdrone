@@ -6,13 +6,12 @@ import cloudpickle
 
 app = FastAPI(
     title="AegisDrone v34 Inference Service",
-    description="Real-time RF classification for the AegisDrone v34 pipeline.",
     version="1.0.0",
 )
 classify_signal_fn = None
 
 class SignalPayload(BaseModel):
-    feature_vector: List[float] = Field(..., min_items=86, max_items=86)
+    feature_vector: List[float]
 
 class PredictionResponse(BaseModel):
     label: str
@@ -23,13 +22,30 @@ class PredictionResponse(BaseModel):
 @app.on_event("startup")
 def load_pipeline():
     global classify_signal_fn
-    for p in ("classify_signal.pkl", "model_artifacts/classify_signal.pkl"):
-        if os.path.exists(p):
-            with open(p, "rb") as f:
-                classify_signal_fn = cloudpickle.load(f)
-            print(f"✓ Pipeline loaded from {p}")
-            return
-    print("⚠  Pipeline file not found.")
+    import mlflow
+    import dagshub
+
+    dagshub.init(
+        repo_owner="anamitra1205",
+        repo_name="my-first-repo",
+        mlflow=True,
+    )
+    mlflow.set_tracking_uri(
+        "https://dagshub.com/anamitra1205/my-first-repo.mlflow"
+    )
+
+    print("Downloading model from MLflow registry...")
+    model_uri = "models:/AegisDrone_v34_Model/latest"
+    pyfunc_model = mlflow.pyfunc.load_model(model_uri)
+
+    def classify_fn(fv):
+        out = pyfunc_model.predict(
+            np.array(fv, dtype=np.float32).reshape(1, -1)
+        )
+        return out[0] if isinstance(out, list) else out
+
+    classify_signal_fn = classify_fn
+    print("✓ Model loaded from MLflow registry")
 
 @app.get("/health")
 def health() -> Dict[str, str]:
