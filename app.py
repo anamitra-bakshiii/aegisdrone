@@ -22,31 +22,41 @@ class PredictionResponse(BaseModel):
 @app.on_event("startup")
 def load_pipeline():
     global classify_signal_fn
-    import mlflow
-    import dagshub
+    try:
+        import mlflow
+        import dagshub
+        import os
 
-    dagshub.init(
-        repo_owner="anamitra1205",
-        repo_name="my-first-repo",
-        mlflow=True,
-    )
-    mlflow.set_tracking_uri(
-        "https://dagshub.com/anamitra1205/my-first-repo.mlflow"
-    )
+        os.environ["MLFLOW_TRACKING_USERNAME"] = os.getenv("MLFLOW_TRACKING_USERNAME", "anamitra1205")
+        os.environ["MLFLOW_TRACKING_PASSWORD"] = os.getenv("MLFLOW_TRACKING_PASSWORD", "f33aa2e9d62643fb238ff47abbcdd7ad7e9179ed")
 
-    print("Downloading model from MLflow registry...")
-    model_uri = "models:/AegisDrone_v34_Model/latest"
-    pyfunc_model = mlflow.pyfunc.load_model(model_uri)
-
-    def classify_fn(fv):
-        out = pyfunc_model.predict(
-            np.array(fv, dtype=np.float32).reshape(1, -1)
+        dagshub.init(
+            repo_owner="anamitra1205",
+            repo_name="my-first-repo",
+            mlflow=True,
         )
-        return out[0] if isinstance(out, list) else out
+        mlflow.set_tracking_uri(
+            "https://dagshub.com/anamitra1205/my-first-repo.mlflow"
+        )
 
-    classify_signal_fn = classify_fn
-    print("✓ Model loaded from MLflow registry")
+        print("Downloading model from MLflow registry...")
+        model_uri = "models:/AegisDrone_v34_Model/latest"
+        pyfunc_model = mlflow.pyfunc.load_model(model_uri)
 
+        def classify_fn(fv):
+            out = pyfunc_model.predict(
+                np.array(fv, dtype=np.float32).reshape(1, -1)
+            )
+            return out[0] if isinstance(out, list) else out
+
+        classify_signal_fn = classify_fn
+        print("✓ Model loaded from MLflow registry")
+
+    except Exception as e:
+        import traceback
+        print(f"ERROR loading model: {e}")
+        traceback.print_exc()
+        # Don't crash — let health endpoint return unhealthy
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "healthy" if classify_signal_fn else "unhealthy"}
